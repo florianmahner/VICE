@@ -39,6 +39,8 @@ def parseargs():
     aa('--optim', type=str, default='adam',
         choices=['adam', 'adamw', 'sgd'],
         help='optimizer to train VICE')
+    aa('--task', type=str, default='triplet',
+        choices=['pairwise', 'triplet'])
     aa('--prior', type=str, metavar='p', default='gaussian',
         choices=['gaussian', 'laplace'],
         help='whether to use a Gaussian or Laplacian mixture for the spike-and-slab prior')
@@ -107,6 +109,7 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         init_dim=args.init_dim,
         optim=args.optim,
+        task=args.task,
         prior=args.prior,
         mc_samples=args.mc_samples,
         spike=args.spike,

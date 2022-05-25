@@ -27,15 +27,15 @@ class DataLoader:
     def __iter__(self) -> Iterator[Tensor]:
         return self.get_batches(self.dataset)
 
-    def get_batches(self, triplets: Tensor) -> Iterator[Tensor]:
+    def get_batches(self, objects: Tensor) -> Iterator[Tensor]:
         if self.train:
-            triplets = triplets[torch.randperm(triplets.shape[0])]
+            objects = objects[torch.randperm(objects.shape[0])]
         for i in range(self.n_batches):
             batch = self.encode_as_onehot(
-                triplets[i * self.batch_size: (i + 1) * self.batch_size]
+                objects[i * self.batch_size: (i + 1) * self.batch_size]
             )
             yield batch
 
-    def encode_as_onehot(self, triplets: Tensor) -> Tensor:
-        """encode item triplets as one-hot-vectors"""
-        return self.identity[triplets.flatten(), :]
+    def encode_as_onehot(self, objects: Tensor) -> Tensor:
+        """encode objects as one-hot-vectors"""
+        return self.identity[objects.flatten(), :]

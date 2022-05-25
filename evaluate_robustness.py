@@ -227,6 +227,7 @@ def evaluate_models(
                 k=k,
                 n_train=None,
                 burnin=None,
+                task='triplet',
                 ws=None,
                 n_objects=n_objects,
                 init_dim=init_dim,
