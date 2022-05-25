@@ -29,6 +29,7 @@ class Trainer(nn.Module):
         n_objects: int,
         init_dim: int,
         optim: Any,
+        task: str,
         eta: str,
         batch_size: int,
         epochs: int,
@@ -51,6 +52,7 @@ class Trainer(nn.Module):
         self.n_objects = n_objects  # number of unique items/objects
         self.init_dim = init_dim
         self.optim = optim
+        self.task = task
         self.eta = eta  # learning rate
         self.batch_size = batch_size
         self.epochs = epochs
@@ -67,6 +69,10 @@ class Trainer(nn.Module):
         self.results_dir = results_dir
         self.device = device
         self.verbose = verbose
+
+        self.S = F.relu(torch.from_numpy(
+            np.load('./test_sim_judgements/similarity_matrix.npy')))
+        self.S /= torch.max(self.S)
 
     def forward(self, *input: Tensor) -> None:
         raise NotImplementedError
@@ -161,7 +167,7 @@ class Trainer(nn.Module):
         return spike + slab
 
     @staticmethod
-    def compute_similarities(
+    def compute_triplet_similarities(
         anchor: Tensor,
         positive: Tensor,
         negative: Tensor,
@@ -171,6 +177,24 @@ class Trainer(nn.Module):
         sim_j = torch.sum(anchor * negative, dim=1)
         sim_k = torch.sum(positive * negative, dim=1)
         return (sim_i, sim_j, sim_k)
+
+    @staticmethod
+    def compute_pairwise_similarities(
+        self,
+        object_i: Tensor, 
+        object_j: Tensor,
+        normalization: str = 'constant',
+        ):
+        dots = torch.sum(object_i * object_j, dim=1)
+        if normalization == 'constant':
+            # normalizing the dot products C_{t} = max(max(0, X_{t}X_{t}^{T})),
+            # where C_{t} is a function of t \in {1, ..., T}
+            normalized_dots = dots / self.max_sim
+        else: # cosine similarity
+            object_i_norms = torch.linalg.norm(object_i, ord=2, dim=1)
+            object_j_norms = torch.linalg.norm(object_j, ord=2, dim=1)
+            normalized_dots = dots / (object_i_norms * object_j_norms)
+        return normalized_dots
 
     @staticmethod
     def break_ties(probas: Tensor) -> Tensor:
@@ -208,9 +232,14 @@ class Trainer(nn.Module):
         choice_acc = self.accuracy_(probas)
         return choice_acc
 
+    def mean_squared_error(self, y_hat: Tensor, object_i: Tensor, object_j: Tensor) -> Tensor:
+        y = self.S[object_i, object_j]
+        return torch.mean((y - y_hat) ** 2)
+
     @staticmethod
-    def unbind(logits: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
-        return torch.unbind(torch.reshape(logits, (-1, 3, logits.shape[-1])), dim=1)
+    def unbind(logits: Tensor, task: str) -> Tuple[Tensor, Tensor, Tensor]:
+        k = 3 if task == 'triplet' else 2
+        return torch.unbind(torch.reshape(logits, (-1, k, logits.shape[-1])), dim=1)
 
     def pruning(
         self,
@@ -242,41 +271,73 @@ class Trainer(nn.Module):
     @torch.no_grad()
     def mc_sampling(self, batch: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
         """Perform Monte Carlo sampling over the variational posterior q_{theta}(X)."""
-        n_choices = 3
-        sampled_probas = torch.zeros(
-            self.mc_samples, batch.shape[0] // n_choices, n_choices
-        ).to(self.device)
-        sampled_choices = torch.zeros(self.mc_samples, batch.shape[0] // n_choices).to(
-            self.device
-        )
+        if self.task == 'triplet':
+            n_choices = 3
+            sampled_probas = torch.zeros(
+                self.mc_samples, batch.shape[0] // n_choices, n_choices
+            ).to(self.device)
+            sampled_choices = torch.zeros(self.mc_samples, batch.shape[0] // n_choices).to(
+                self.device
+            )
+        else:
+            sampled_likelihoods = torch.zeros(self.mc_samples)
+
         for k in range(self.mc_samples):
             logits, _, _, _ = self.forward(batch)
-            anchor, positive, negative = self.unbind(logits)
-            similarities = self.compute_similarities(anchor, positive, negative)
-            soft_choices = self.softmax(similarities)
-            probas = F.softmax(torch.stack(similarities, dim=-1), dim=1)
-            sampled_probas[k] += probas
-            sampled_choices[k] += soft_choices
-        probas = sampled_probas.mean(dim=0)
-        val_acc = self.accuracy_(probas)
-        hard_choices = self.accuracy_(probas, batching=False)
-        soft_choices = sampled_choices.mean(dim=0)
-        val_loss = torch.mean(-torch.log(soft_choices))
-        return val_acc, val_loss, probas, hard_choices
+
+            if self.task == 'triplet':
+                anchor, positive, negative = self.unbind(logits, self.task)
+                similarities = self.compute_triplet_similarities(
+                    anchor, positive, negative
+                )
+                soft_choices = self.softmax(similarities)
+                probas = F.softmax(torch.stack(similarities, dim=-1), dim=1)
+                sampled_probas[k] += probas
+                sampled_choices[k] += soft_choices
+
+            else: #mse
+                objects = batch.nonzero(as_tuple=True)[-1]
+                object_i, object_j = self.unbind(objects[:, None], self.task)
+                object_i = object_i.squeeze(-1)
+                object_j = object_j.squeeze(-1)
+                embedding_i, embedding_j = self.unbind(logits, self.task)
+                similarities = self.compute_pairwise_similarities(
+                    embedding_i, embedding_j,
+                )
+                sampled_likelihoods[k] += self.mean_squared_error(
+                    similarities, object_i, object_j
+                )
+        if self.task == 'triplet':
+            probas = sampled_probas.mean(dim=0)
+            val_acc = self.accuracy_(probas.cpu())
+            hard_choices = self.accuracy_(probas.cpu(), batching=False)
+            soft_choices = sampled_choices.mean(dim=0)
+            val_loss = torch.mean(-torch.log(soft_choices))
+            return val_acc, val_loss, probas, hard_choices
+
+        val_loss = torch.mean(sampled_likelihoods)
+        return val_loss
 
     def evaluate(self, val_batches: Iterator) -> Tuple[float, float]:
         """Evaluate model on the validation set."""
         self.eval()
         batch_losses_val = torch.zeros(len(val_batches))
-        batch_accs_val = torch.zeros(len(val_batches))
+        if self.task == 'triplet':
+            batch_accs_val = torch.zeros(len(val_batches))
+
         for j, batch in enumerate(val_batches):
             batch = batch.to(self.device)
-            val_acc, val_loss, _, _ = self.mc_sampling(batch)
+            if self.task == 'triplet':
+                val_acc, val_loss, _, _ = self.mc_sampling(batch)
+                batch_accs_val[j] += val_acc
+            else:
+                val_loss = self.mc_sampling(batch)
             batch_losses_val[j] += val_loss.item()
-            batch_accs_val[j] += val_acc
         avg_val_loss = torch.mean(batch_losses_val).item()
-        avg_val_acc = torch.mean(batch_accs_val).item()
-        return avg_val_loss, avg_val_acc
+        if self.task == 'triplet':
+            avg_val_acc = torch.mean(batch_accs_val).item()
+            return avg_val_loss, avg_val_acc
+        return avg_val_loss
 
     def inference(
         self,
@@ -328,15 +389,33 @@ class Trainer(nn.Module):
         batch_llikelihoods = torch.zeros(len(train_batches))
         batch_closses = torch.zeros(len(train_batches))
         batch_losses = torch.zeros(len(train_batches))
-        batch_accs = torch.zeros(len(train_batches))
+
+        if self.task == 'triplet':
+            batch_accs = torch.zeros(len(train_batches))
+
         for i, batch in enumerate(train_batches):
             self.optim.zero_grad()
             batch = batch.to(self.device)
             logits, loc, scale, X = self.forward(batch)
-            anchor, positive, negative = self.unbind(logits)
-            similarities = self.compute_similarities(anchor, positive, negative)
-            c_entropy = self.cross_entropy_loss(similarities)
-            acc = self.choice_accuracy(similarities)
+
+            if self.task == 'triplet':
+                anchor, positive, negative = self.unbind(logits, self.task)
+                similarities = self.compute_triplet_similarities(
+                    anchor, positive, negative
+                )
+                likelihood = self.cross_entropy_loss(similarities)
+                acc = self.choice_accuracy(similarities)
+            else: #mse
+                self.max_sim = torch.max(F.relu(X @ X.T))
+                objects = batch.nonzero(as_tuple=True)[-1]
+                object_i, object_j = self.unbind(objects[:, None], self.task)
+                object_i = object_i.squeeze(-1)
+                object_j = object_j.squeeze(-1)
+                embedding_i, embedding_j = self.unbind(logits, self.task)
+                similarities = self.compute_pairwise_similarities(
+                    embedding_i, embedding_j,
+                )
+                likelihood = self.mean_squared_error(similarities, object_i, object_j)
 
             if self.prior == "gaussian":
                 log_q = self.norm_pdf(X, loc, scale).log()
@@ -345,16 +424,21 @@ class Trainer(nn.Module):
 
             log_p = self.spike_and_slab(X).log()
             complexity_loss = (1 / self.n_train) * (log_q.sum() - log_p.sum())
-            self.loss = c_entropy + complexity_loss
+            self.loss = likelihood + complexity_loss
             self.loss.backward()
             self.optim.step()
 
             batch_losses[i] += self.loss.item()
-            batch_llikelihoods[i] += c_entropy.item()
+            batch_llikelihoods[i] += likelihood.item()
             batch_closses[i] += complexity_loss.item()
-            batch_accs[i] += acc
 
-        return batch_llikelihoods, batch_closses, batch_losses, batch_accs
+            if self.task == 'triplet':
+                batch_accs[i] += acc
+        
+        if self.task == 'triplet':
+            return batch_llikelihoods, batch_closses, batch_losses, batch_accs
+
+        return batch_llikelihoods, batch_closses, batch_losses
 
     def fit(self, train_batches: Iterator, val_batches: Iterator) -> None:
         """Fit a VICE model to a dataset of n concept triplets."""
@@ -364,34 +448,52 @@ class Trainer(nn.Module):
         for epoch in range(self.start, self.epochs):
             self.train()
             # take a step over the entire training data (i.e., iterate over every mini-batch in train_batches)
-            batch_llikelihoods, batch_closses, batch_losses, batch_accs = self.stepping(
-                train_batches
-            )
+
+            if self.task == 'triplet':
+                batch_llikelihoods, batch_closses, batch_losses, batch_accs = self.stepping(
+                    train_batches
+                )
+                avg_train_acc = torch.mean(batch_accs).item()
+                self.train_accs.append(avg_train_acc)
+            else:
+                batch_llikelihoods, batch_closses, batch_losses = self.stepping(
+                    train_batches
+                )
 
             avg_llikelihood = torch.mean(batch_llikelihoods).item()
             avg_closs = torch.mean(batch_closses).item()
             avg_train_loss = torch.mean(batch_losses).item()
-            avg_train_acc = torch.mean(batch_accs).item()
-
+            
             self.loglikelihoods.append(avg_llikelihood)
             self.complexity_losses.append(avg_closs)
             self.train_losses.append(avg_train_loss)
-            self.train_accs.append(avg_train_acc)
 
             signal, _, _ = self.pruning()
             dimensionality = signal.shape[0]
             self.latent_dimensions.append(dimensionality)
 
             if self.verbose:
-                print(
-                    "\n======================================================================================"
-                )
-                print(
-                    f"====== Epoch: {epoch+1:02d}, Train acc: {avg_train_acc:.3f}, Train loss: {avg_train_loss:.3f}, Identified dimensions: {dimensionality:02d} ======"
-                )
-                print(
-                    "======================================================================================\n"
-                )
+                if self.task == 'triplet':
+                    print(
+                        "\n======================================================================================"
+                    )
+                    print(
+                        f"====== Epoch: {epoch+1:02d}, Train acc: {avg_train_acc:.3f}, Train loss: {avg_train_loss:.3f}, Identified dimensions: {dimensionality:02d} ======"
+                    )
+                    print(
+                        "======================================================================================\n"
+                    )
+                else:
+                    print(
+                        "\n======================================================================================"
+                    )
+                    print(
+                        f"====== Epoch: {epoch+1:02d}, Train loss: {avg_train_loss:.3f}, Identified dimensions: {dimensionality:02d} ======"
+                    )
+                    print(
+                        "======================================================================================\n"
+                    )
+
 
             if (epoch + 1) % self.steps == 0:
                 avg_val_loss, avg_val_acc = self.evaluate(val_batches)
