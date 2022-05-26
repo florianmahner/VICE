@@ -188,9 +188,9 @@ class Trainer(nn.Module):
         object_j: Tensor,
         ):
         dots = torch.sum(object_i * object_j, dim=1)
-        object_i_norms = torch.linalg.norm(object_i, ord=2, dim=1)
-        object_j_norms = torch.linalg.norm(object_j, ord=2, dim=1)
-        cosines = dots / (object_i_norms * object_j_norms)
+        object_i_magnitudes = torch.linalg.norm(object_i, ord=2, dim=1)
+        object_j_magnitudes = torch.linalg.norm(object_j, ord=2, dim=1)
+        cosines = dots / (object_i_magnitudes * object_j_magnitudes)
         return cosines
 
     @staticmethod
