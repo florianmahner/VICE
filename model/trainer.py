@@ -336,6 +336,7 @@ class Trainer(nn.Module):
             else:
                 val_loss = self.mc_sampling(batch)
             batch_losses_val[j] += val_loss.item()
+
         avg_val_loss = torch.mean(batch_losses_val).item()
         if self.task == 'triplet':
             avg_val_acc = torch.mean(batch_accs_val).item()
@@ -429,8 +430,8 @@ class Trainer(nn.Module):
                 similarities = self.pairwise_similarities(logits)
                 likelihood = self.mean_squared_error(
                     similarities, object_i, object_j
-            )
-
+                    )
+                    
             if self.prior == "gaussian":
                 log_q = self.norm_pdf(X, loc, scale).log()
             else:
