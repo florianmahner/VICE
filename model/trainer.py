@@ -194,10 +194,10 @@ class Trainer(nn.Module):
         embedding_j_magnitudes = torch.linalg.norm(
             embedding_j, ord=2, dim=1
             ) 
-        cosines = dots / (
+        cosine_sims = dots / (
             embedding_i_magnitudes * embedding_j_magnitudes
             )
-        return cosines
+        return cosine_sims
 
     @staticmethod
     def break_ties(probas: Array) -> Array:
@@ -431,7 +431,7 @@ class Trainer(nn.Module):
                 likelihood = self.mean_squared_error(
                     similarities, object_i, object_j
                     )
-                    
+
             if self.prior == "gaussian":
                 log_q = self.norm_pdf(X, loc, scale).log()
             else:
