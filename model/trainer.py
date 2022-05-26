@@ -186,7 +186,7 @@ class Trainer(nn.Module):
     def compute_pairwise_similarities(
         object_i: Tensor, 
         object_j: Tensor,
-        ):
+        ) -> Tensor:
         dots = torch.sum(object_i * object_j, dim=1)
         object_i_magnitudes = torch.linalg.norm(object_i, ord=2, dim=1)
         object_j_magnitudes = torch.linalg.norm(object_j, ord=2, dim=1)
