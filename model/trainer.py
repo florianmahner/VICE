@@ -186,8 +186,8 @@ class Trainer(nn.Module):
         self,
         object_i: Tensor, 
         object_j: Tensor,
-        normalization: str = 'constant',
-        ):
+        normalization: str = 'constant'
+        ) -> Tensor:
         dots = torch.sum(object_i * object_j, dim=1)
         if normalization == 'constant':
             # normalizing the dot products C_{t} = max(max(0, X_{t}X_{t}^{T})),
