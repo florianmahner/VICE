@@ -57,6 +57,7 @@ class VICE(Trainer):
         model_dir: str,
         results_dir: str,
         device: torch.device,
+        similarity_matrix = None,
         verbose: bool = False,
         init_weights: bool = True,
         bias: bool = False,
@@ -82,6 +83,7 @@ class VICE(Trainer):
             model_dir=model_dir,
             results_dir=results_dir,
             device=device,
+            similarity_matrix=similarity_matrix,
             verbose=verbose,
         )
         self.mu = Mu(n_objects, init_dim, bias)

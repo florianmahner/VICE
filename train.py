@@ -109,6 +109,20 @@ def run(
         pi=pi,
         rnd_seed=rnd_seed,
     )
+
+    if task == 'pairwise':
+        try:
+            similarity_matrix = np.load(
+                os.path.join(triplets_dir, 'similarity_matrix.npy')
+            )
+            similarity_matrix = torch.from_numpy(
+                similarity_matrix
+            )
+        except FileNotFoundError:
+            raise Exception('\nSimilarity matrix must be stored in the same folder as the object pairs.\n')
+    else:
+        similarity_matrix = None
+
     # initialize VICE model
     vice = getattr(model, "VICE")(
         n_train=N,
@@ -131,6 +145,7 @@ def run(
         model_dir=model_dir,
         results_dir=results_dir,
         device=device,
+        similarity_matrix=similarity_matrix,
         verbose=verbose,
         init_weights=True,
     )

@@ -36,6 +36,8 @@ def parseargs():
         help='reproducibility threshold (0.8 used in the ICLR paper)')
     aa('--batch_size', metavar='B', type=int, default=128,
         help='number of triplets in each mini-batch')
+    aa('--task', type=str, default='pairwise',
+        choices=['pairwise', 'triplet'])
     aa('--optim', type=str, metavar='o', default='adam',
         choices=['adam', 'adamw', 'sgd'],
         help='optimizer that was used to train VICE')
@@ -75,7 +77,7 @@ def robustness(corrs: np.ndarray, thresh: float) -> float:
 
 def uncertainty_estimates(W_sigma: np.ndarray, sorted_dims: np.ndarray, rel_freq: float) -> float:
     W_sigma_mean = np.mean(W_sigma, axis=0)
-    assert len(W_sigma_mean) == min(W_sigma.shape)
+    # assert len(W_sigma_mean) == min(W_sigma.shape)
     K = int(rel_freq * len(sorted_dims))
     n_dims = sum([d in np.argsort(-W_sigma_mean)[:K] for d in sorted_dims[:K]])
     if K:
@@ -200,6 +202,7 @@ def evaluate_models(
     n_objects: int,
     init_dim: int,
     optim: str,
+    task: str,
     prior: str,
     spike: float,
     slab: float,
@@ -220,6 +223,20 @@ def evaluate_models(
     val_batches = utils.load_batches(
         train_triplets=None, test_triplets=val_triplets, n_objects=n_objects, batch_size=batch_size, inference=True)
     val_losses = np.zeros(len(model_paths))
+
+    if task == 'pairwise':
+        try:
+            similarity_matrix = np.load(
+                os.path.join(triplets_dir, 'similarity_matrix.npy')
+            )
+            similarity_matrix = torch.from_numpy(
+                similarity_matrix
+            )
+        except FileNotFoundError:
+            raise Exception('\nSimilarity matrix must be stored in the same folder as the object pairs.\n')
+    else:
+        similarity_matrix = None
+
     for i, model_path in enumerate(model_paths):
         print(f'Currently pruning and evaluating model: {i+1}\n')
         try:
@@ -227,7 +244,7 @@ def evaluate_models(
                 k=k,
                 n_train=None,
                 burnin=None,
-                task='triplet',
+                task=task,
                 ws=None,
                 n_objects=n_objects,
                 init_dim=init_dim,
@@ -244,6 +261,7 @@ def evaluate_models(
                 model_dir=os.path.join(model_path, 'model'),
                 results_dir=results_dir,
                 device=device,
+                similarity_matrix=similarity_matrix,
                 init_weights=True)
             vice = utils.load_model(
                 model=vice, PATH=model_path, device=device)
@@ -280,6 +298,7 @@ if __name__ == '__main__':
         n_objects=args.n_objects,
         init_dim=args.init_dim,
         optim=args.optim,
+        task=args.task,
         prior=args.prior,
         spike=args.spike,
         slab=args.slab,

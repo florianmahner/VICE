@@ -39,7 +39,7 @@ def parseargs():
     aa('--optim', type=str, default='adam',
         choices=['adam', 'adamw', 'sgd'],
         help='optimizer to train VICE')
-    aa('--task', type=str, default='triplet',
+    aa('--task', type=str, default='pairwise',
         choices=['pairwise', 'triplet'])
     aa('--prior', type=str, metavar='p', default='gaussian',
         choices=['gaussian', 'laplace'],
