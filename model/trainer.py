@@ -184,13 +184,19 @@ class Trainer(nn.Module):
 
     @staticmethod
     def compute_pairwise_similarities(
-        object_i: Tensor, 
-        object_j: Tensor,
+        embedding_i: Tensor, 
+        embedding_j: Tensor,
         ) -> Tensor:
-        dots = torch.sum(object_i * object_j, dim=1)
-        object_i_magnitudes = torch.linalg.norm(object_i, ord=2, dim=1)
-        object_j_magnitudes = torch.linalg.norm(object_j, ord=2, dim=1)
-        cosines = dots / (object_i_magnitudes * object_j_magnitudes)
+        dots = torch.sum(embedding_i * embedding_j, dim=1)
+        embedding_i_magnitudes = torch.linalg.norm(
+            embedding_i, ord=2, dim=1
+            )
+        embedding_j_magnitudes = torch.linalg.norm(
+            embedding_j, ord=2, dim=1
+            ) 
+        cosines = dots / (
+            embedding_i_magnitudes * embedding_j_magnitudes
+            )
         return cosines
 
     @staticmethod
