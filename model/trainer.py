@@ -428,7 +428,7 @@ class Trainer(nn.Module):
                 likelihood = self.mean_squared_error(
                     similarities, object_i, object_j
                     )
-                    
+
             if self.prior == "gaussian":
                 log_q = self.norm_pdf(X, loc, scale).log()
             else:
