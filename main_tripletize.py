@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+from email.policy import default
 import os
 import h5py
 import random
@@ -22,16 +23,24 @@ def parseargs():
     parser = argparse.ArgumentParser()
     def aa(*args, **kwargs):
         parser.add_argument(*args, **kwargs)
-    aa("--in_path", type=str, help="path/to/design/matrix")
-    aa("--out_path", type=str, help="path/to/triplets")
-    aa("--n_samples", type=int, help="number of triplet samples")
-    aa("--rnd_seed", type=int, default=42, help="random seed")
+    aa("--in_path", type=str,
+        help="path/to/design/matrix")
+    aa("--out_path", type=str,
+        help="path/to/similarity/judgments")
+    aa("--n_samples", type=int, 
+        help="number of similarity judgements")
+    aa("--k", type=int, default=3, choices=[2, 3],
+        help='whether to sample pairs or triplets')
+    aa("--similarity", type=str, choices=['cosine', 'dot'],
+        help='similarity function')
+    aa("--rnd_seed", type=int, default=42, 
+        help="random seed")
     args = parser.parse_args()
     return args
 
 
 @dataclass
-class Tripletizer:
+class Sampler:
     in_path: str
     out_path: str
     n_samples: int
@@ -82,7 +91,7 @@ class Tripletizer:
     @staticmethod
     def softmax(z: np.ndarray) -> np.ndarray:
         proba = np.exp(z) / np.sum(np.exp(z))
-        return proba 
+        return proba
 
     @staticmethod
     def log_softmax_scaled(z: np.ndarray, const) -> np.ndarray:
@@ -106,10 +115,35 @@ class Tripletizer:
 
     @staticmethod
     def random_choice(n_samples: int, combs: Array):
-        return combs[np.random.choice(combs.shape[0], size=n_samples, replace=False)]
+        return combs[np.random.choice(np.arange(combs.shape[0]), size=n_samples, replace=False)]
 
-    def sample_triplets(self) -> Array:
-        """Create synthetic triplet data."""
+    @staticmethod
+    def get_combinations(M, k):
+        return np.array(list(itertools.combinations(range(M), k)))
+
+    @staticmethod
+    def cosine_matrix(X: np.ndarray, a_min: float = -1., a_max: float = 1.) -> np.ndarray:
+        """Compute cosine-similarity matrix."""
+        num = X @ X.T
+        # compute vector l2-norm across rows
+        l2_norms = np.linalg.norm(X, axis=1)
+        denom = np.outer(l2_norms, l2_norms)
+        cos_mat = (num / denom).clip(min=a_min, max=a_max)
+        return cos_mat
+
+    def sample_pairs(self, similarity:str = 'cosine') -> Array:
+        X = self.load_domain(self.in_path)
+        M = X.shape[0]
+        if similarity == 'cosine':
+            S = self.cosine_matrix(X)
+        else:
+            S = X @ X.T
+        combs = self.get_combinations(M, self.k)
+        random_sample = self.random_choice(self.n_samples, combs)
+        return S, random_sample
+
+    def sample_similarity_judgements(self) -> Array:
+        """Create similarity judgements."""
         X = self.load_domain(self.in_path)
         M = X.shape[0]
 
@@ -162,17 +196,17 @@ class Tripletizer:
         return triplets
 
     def create_train_test_split(
-        self, triplets: Array
+        self, similarity_judgements: Array
     ) -> Tuple[Array, Array]:
         """Split triplet data into train and test splits."""
-        N = triplets.shape[0]
+        N = similarity_judgements.shape[0]
         rnd_perm = np.random.permutation(N)
-        train_split = triplets[rnd_perm[: int(len(rnd_perm) * self.train_frac)]]
-        test_split = triplets[rnd_perm[int(len(rnd_perm) * self.train_frac):]]
+        train_split = similarity_judgements[rnd_perm[: int(len(rnd_perm) * self.train_frac)]]
+        test_split = similarity_judgements[rnd_perm[int(len(rnd_perm) * self.train_frac):]]
         return train_split, test_split
 
-    def save_triplets(self, triplets: Array) -> None:
-        train_split, test_split = self.create_train_test_split(triplets)
+    def save_similarity_judgements(self, similarity_judgements: Array) -> None:
+        train_split, test_split = self.create_train_test_split(similarity_judgements)
         with open(os.path.join(self.out_path, "train_90.npy"), "wb") as train_file:
             np.save(train_file, train_split)
         with open(os.path.join(self.out_path, "test_10.npy"), "wb") as test_file:
@@ -183,11 +217,19 @@ if __name__ == "__main__":
     # parse arguments
     args = parseargs()
 
-    tripletizer = Tripletizer(
+    tripletizer = Sampler(
         in_path=args.in_path,
         out_path=args.out_path,
         n_samples=args.n_samples,
+        k=args.k,
         rnd_seed=args.rnd_seed,
     )
-    triplets = tripletizer.sample_triplets()
-    tripletizer.save_triplets(triplets)
+    if args.k == 3:
+        similarity_judgements = tripletizer.sample_similarity_judgements()
+        tripletizer.save_similarity_judgements(similarity_judgements)
+    else:
+        assert isinstance(args.similarity, str), '\nSpecify similarity function.\n'
+        S, random_sample = tripletizer.sample_pairs(args.similarity)
+        tripletizer.save_similarity_judgements(random_sample)
+        with open(os.path.join(args.out_path, "similarity_matrix.npy"), "wb") as f:
+            np.save(f, S)

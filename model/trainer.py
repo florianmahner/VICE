@@ -69,7 +69,7 @@ class Trainer(nn.Module):
         self.model_dir = model_dir
         self.results_dir = results_dir
         self.device = device
-        self.verbose = verbose       
+        self.verbose = verbose   
         
         if self.task == 'pairwise':
             assert isinstance(similarity_matrix, 
@@ -308,8 +308,8 @@ class Trainer(nn.Module):
 
         if self.task == 'triplet':
             probas = sampled_probas.mean(dim=0)
-            val_acc = self.accuracy_(probas.cpu())
-            hard_choices = self.accuracy_(probas.cpu(), batching=False)
+            val_acc = self.accuracy_(probas)
+            hard_choices = self.accuracy_(proba, batching=False)
             soft_choices = sampled_choices.mean(dim=0)
             val_loss = torch.mean(-torch.log(soft_choices))
             return val_acc, val_loss, probas, hard_choices
