@@ -107,6 +107,9 @@ def load_batches(
         )
         return test_batches
     else:
+
+        train_triplets = train_triplets[:10000] # NOTE short hack to limit 
+        test_triplets = test_triplets[:1000]
         # create two iterators of train and validation mini-batches respectively
         train_batches = DataLoader(
             dataset=train_triplets, n_objects=n_objects, batch_size=batch_size, train=True

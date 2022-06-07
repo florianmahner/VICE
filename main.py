@@ -98,6 +98,13 @@ if __name__ == "__main__":
         torch.set_num_threads(args.num_threads)
         device = torch.device(args.device)
 
+    args.pairwise = False
+    args.task = 'triplet'
+    args.verbose = True
+    args.steps = 1
+    args.burnin = 100
+    args.triplets_dir = '/LOCAL/fmahner/THINGS/triplets6'
+
     train.run(
         modality=args.modality,
         results_dir=args.results_dir,

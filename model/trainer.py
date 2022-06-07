@@ -511,6 +511,8 @@ class Trainer(nn.Module):
                 else:
                     avg_val_loss = self.evaluate(val_batches)
                 self.val_losses.append(avg_val_loss)
+
+                print('Val Stuff', 'Loss', avg_val_loss, 'ACC', avg_val_acc)
                
                 self.save_checkpoint(epoch)
                 self.save_results(epoch)
